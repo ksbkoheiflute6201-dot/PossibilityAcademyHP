@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>イベントカレンダー</title>
+
+<style>
+:root{
+  --cat-talk:#d99aa9;
+  --cat-study:#9fbea9;
+  --cat-online:#93afd0;
+  --cat-session:#e3cc7a;
+  --cat-other:#b695bd;
+}
+
+body{
+  font-family:sans-serif;
+}
+
+.header{
+  display:flex;
+  align-items:center;
+  gap:15px;
+  flex-wrap:wrap;
+  margin-bottom:10px;
+}
+
+button{
+  padding:5px 10px;
+}
+
+#currentMonth{
+  font-weight:bold;
+  font-size:18px;
+}
+
+.legend{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.legend-item{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  font-size:12px;
+}
+
+.legend-color{
+  width:12px;
+  height:12px;
+  border-radius:2px;
+}
+
+#calendar{
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  gap:1px;
+  background:#ccc;
+}
+
+.weekday{
+  background:#ddd;
+  text-align:center;
+  font-weight:bold;
+  padding:5px 0;
+}
+
+.day{
+  background:white;
+  min-height:100px;
+  padding:4px;
+  font-size:12px;
+  position:relative;
+  overflow-y:auto;
+}
+
+.other-month{
+  background:#f5f5f5;
+  color:#aaa;
+}
+
+.sunday{
+  background:#ffeaea;
+}
+
+.saturday{
+  background:#eaf3ff;
+}
+
+.date-number{
+  font-weight:bold;
+  font-size:14px;
+}
+
+.today{
+  outline:3px solid orange;
+  background:#fff8e6;
+}
+
+.event{
+  margin-top:2px;
+  padding:2px;
+  border-radius:3px;
+  font-size:10px;
+  color:white;
+  cursor:pointer;
+}
+
+.sunday .date-number{ color:red; }
+.saturday .date-number{ color:blue; }
+
+.weekday:nth-child(1){ color:red; }
+.weekday:nth-child(7){ color:blue; }
+
+.modal{
+  display:none;
+  position:fixed;
+  z-index:1000;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+
+  background:rgba(0,0,0,0.4);
+
+  overflow-y:auto;
+  padding:20px 0; /* 上下余白 */
+}
+.modal-content{
+  background:white;
+  margin:auto;
+  padding:20px;
+  width:90%;
+  max-width:420px;
+  border-radius:10px;
+  position:relative;
+
+  height:auto;
+  max-height:none;
+}
+.close{
+  position:absolute;
+  right:12px;
+  top:8px;
+  font-size:22px;
+  cursor:pointer;
+}
+
+#modalUrl {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #4CAF50, #66bb6a);
+  color: white;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: bold;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+  transition: 0.2s;
+}
+
+#modalUrl:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 10px rgba(0,0,0,0.3);
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <button onclick="goToday()">今日</button>
+  <button onclick="changeMonth(-1)">←</button>
+  <div id="currentMonth"></div>
+  <button onclick="changeMonth(1)">→</button>
+  <div class="legend" id="legend"></div>
+</div>
+
+<div id="calendar"></div>
+
+<!-- モーダル -->
+<div id="eventModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal()">&times;</span>
+    <h2 id="modalTitle"></h2>
+　　<img id="modalImage" style="max-width:100%; margin:10px 0; display:none; border-radius:6px;">
+    <p><strong>イベントタイプ：</strong><span id="modalCategory"></span></p>
+    <p><strong>開始日時：</strong><span id="modalStart"></span></p>
+    <p><strong>終了日時：</strong><span id="modalEnd"></span></p>
+    <p><strong>開催場所：</strong><span id="modalLocation"></span></p>
+    <p><strong>開催場所住所：</strong><span id="modalAddress"></span></p>
+    <p>
+  　　<a id="modalUrl" href="#" target="_blank"></a>
+　　</p>
+
+  </div>
+</div>
+
+<script>
+
+const CATEGORY_COLORS={
+  "講演会":"var(--cat-talk)",
+  "勉強会・交流会":"var(--cat-study)",
+  "オンラインセミナー":"var(--cat-online)",
+  "個別セッション":"var(--cat-session)",
+  "その他":"var(--cat-other)"
+};
+
+let events=[];
+
+/* 🔴 ここを自分のGASに変更 */
+const GAS_URL="https://script.google.com/macros/s/AKfycbxAF08NbI72sO5LtSki50be-bQB3EfVFnpID6BaiJrmolUTwGW_m5135grpO3vKA3rG/exec";
+
+let current=new Date();
+
+function loadEvents(){
+  fetch(GAS_URL + "?t=" + new Date().getTime())
+    .then(res=>res.json())
+    .then(data=>{
+      events=data;
+      renderCalendar();
+    })
+    .catch(err=>{
+      console.error(err);
+      alert("データ取得失敗");
+    });
+}
+
+function renderLegend(){
+  const legend=document.getElementById("legend");
+  legend.innerHTML="";
+  Object.keys(CATEGORY_COLORS).forEach(cat=>{
+    const item=document.createElement("div");
+    item.className="legend-item";
+    const color=document.createElement("div");
+    color.className="legend-color";
+    color.style.background=CATEGORY_COLORS[cat];
+    const label=document.createElement("span");
+    label.innerText=cat;
+    item.appendChild(color);
+    item.appendChild(label);
+    legend.appendChild(item);
+  });
+}
+
+function renderCalendar(){
+  const year=current.getFullYear();
+  const month=current.getMonth();
+  document.getElementById("currentMonth").innerText=
+    year+"年 "+(month+1)+"月";
+
+  const calendar=document.getElementById("calendar");
+  calendar.innerHTML="";
+
+  const firstDay=new Date(year,month,1);
+  const startDay=firstDay.getDay();
+  const startDate=new Date(year,month,1-startDay);
+  const today=new Date();
+
+  const weekNames=["日","月","火","水","木","金","土"];
+  weekNames.forEach(w=>{
+    const div=document.createElement("div");
+    div.className="weekday";
+    div.innerText=w;
+    calendar.appendChild(div);
+  });
+
+  for(let i=0;i<42;i++){
+    const cellDate=new Date(startDate);
+    cellDate.setDate(startDate.getDate()+i);
+
+    const div=document.createElement("div");
+    div.className="day";
+
+    if(cellDate.getMonth()!==month)
+      div.classList.add("other-month");
+
+    const weekDay=cellDate.getDay();
+    if(weekDay===0) div.classList.add("sunday");
+    if(weekDay===6) div.classList.add("saturday");
+
+    if(cellDate.toDateString()===today.toDateString())
+      div.classList.add("today");
+
+    const dateLabel=document.createElement("div");
+    dateLabel.className="date-number";
+    dateLabel.innerText=cellDate.getDate();
+    div.appendChild(dateLabel);
+
+    const dateStr=
+      cellDate.getFullYear()+"-"+
+      String(cellDate.getMonth()+1).padStart(2,"0")+"-"+
+      String(cellDate.getDate()).padStart(2,"0");
+
+    const dayEvents=events
+      .filter(e=>e.date===dateStr)
+      .sort((a,b)=>a.start.localeCompare(b.start));
+
+    dayEvents.forEach(ev=>{
+      const evDiv=document.createElement("div");
+      evDiv.className="event";
+      evDiv.style.background=CATEGORY_COLORS[ev.category] || "gray";
+      evDiv.innerText=ev.start+" "+ev.title;
+      evDiv.onclick=function(){ openModal(ev); };
+      div.appendChild(evDiv);
+    });
+
+    calendar.appendChild(div);
+  }
+}
+
+function openModal(ev){
+  document.getElementById("modalTitle").innerText=ev.title;
+  document.getElementById("modalCategory").innerText=ev.category;
+  document.getElementById("modalStart").innerText=ev.date+" "+ev.start;
+  document.getElementById("modalEnd").innerText=ev.date+" "+ev.end;
+  document.getElementById("modalLocation").innerText=ev.location || "";
+  document.getElementById("modalAddress").innerText=ev.address || "";
+
+  const link=document.getElementById("modalUrl");
+  link.href=ev.url || "#";
+  link.innerText = ev.url ? "申込ページはこちら" : "";
+
+  const img=document.getElementById("modalImage");
+  if(ev.image){
+    img.src=ev.image;
+    img.style.display="block";
+    img.onclick=function(){
+      openImageViewer(ev.image);
+    };
+  }else{
+    img.style.display="none";
+  }
+
+  document.getElementById("eventModal").style.display="block";
+}
+
+function closeModal(){
+  document.getElementById("eventModal").style.display="none";
+}
+
+window.onclick=function(e){
+  const modal=document.getElementById("eventModal");
+  if(e.target===modal){
+    modal.style.display="none";
+  }
+};
+
+function openImageViewer(src){
+  const viewer=document.getElementById("imageViewer");
+  const img=document.getElementById("viewerImage");
+  img.src=src;
+  viewer.style.display="flex";
+  viewer.onclick=function(){
+    viewer.style.display="none";
+  };
+}
+
+function changeMonth(n){
+  current.setMonth(current.getMonth()+n);
+  renderCalendar();
+}
+
+function goToday(){
+  current=new Date();
+  renderCalendar();
+}
+
+/* 初期処理 */
+renderLegend();
+loadEvents();
+
+</script>
+
+<!-- 画像拡大 -->
+<div id="imageViewer" style="
+  display:none;
+  position:fixed;
+  z-index:2000;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  background:rgba(0,0,0,0.8);
+  justify-content:center;
+  align-items:center;
+">
+  <img id="viewerImage" style="
+    max-width:90%;
+    max-height:90%;
+    border-radius:8px;
+  ">
+</div>
+
+</body>
+</html>
